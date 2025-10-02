@@ -11,15 +11,17 @@ namespace ChatbotAPI.Models
         [Required]
         public int UserId { get; set; }
 
-        [ForeignKey("UserId")]
+        [ForeignKey(nameof(UserId))]
         public required User User { get; set; }
 
-        public required string BusinessName { get; set; }
+        [MaxLength(120)]
+        public string? Name { get; set; } = "Draft"; // default, will be overwritten by TrainingData.BusinessName
 
-        public required string WebsiteUrl { get; set; }
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+        public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
-        public DateTime CreatedAt { get; set; } = DateTime.Now;
-
-        public DateTime UpdatedAt { get; set; } = DateTime.Now;
+        // 1:1
+        public WidgetSettings? WidgetSettings { get; set; }
+        public TrainingData? TrainingData { get; set; }
     }
 }

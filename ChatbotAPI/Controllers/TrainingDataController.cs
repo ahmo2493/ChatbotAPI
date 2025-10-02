@@ -1,60 +1,72 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using ChatbotAPI.Models;
 using ChatbotAPI.Data;
+using ChatbotAPI.Models;
 
 namespace ChatbotAPI.Controllers
 {
-    [Route("api/[controller]")]
     [ApiController]
+    [Route("api/[controller]")]
     public class TrainingDataController : ControllerBase
     {
         private readonly ChatbotDbContext _context;
+        public TrainingDataController(ChatbotDbContext ctx) => _context = ctx;
 
-        public TrainingDataController(ChatbotDbContext context)
+        [HttpGet("{projectId:guid}")]
+        public async Task<IActionResult> Get(Guid projectId)
         {
-            _context = context;
+            var td = await _context.TrainingData
+                .AsNoTracking()
+                .FirstOrDefaultAsync(t => t.ProjectId == projectId);
+
+            return td is null ? NotFound() : Ok(td);
         }
 
-        // POST: api/TrainingData
-        [HttpPost]
-        public async Task<IActionResult> CreateTrainingData([FromBody] TrainingData trainingData)
+        [HttpPost("{projectId:guid}")]
+        public async Task<IActionResult> Upsert(Guid projectId, [FromBody] TrainingData dto)
         {
-            if (trainingData == null || trainingData.ProjectId == Guid.Empty)
+            var project = await _context.Projects.FirstOrDefaultAsync(p => p.Id == projectId);
+            if (project is null) return BadRequest($"Unknown projectId: {projectId}");
+
+            var existing = await _context.TrainingData.FirstOrDefaultAsync(t => t.ProjectId == projectId);
+
+            if (existing is null)
             {
-                return BadRequest("Invalid training data.");
+                var entity = new TrainingData
+                {
+                    ProjectId = projectId,
+                    BusinessName = dto.BusinessName,
+                    WebsiteUrl = dto.WebsiteUrl,
+                    ContactLink = dto.ContactLink,
+                    TrainingText = dto.TrainingText
+                };
+                _context.TrainingData.Add(entity);
+            }
+            else
+            {
+                existing.BusinessName = dto.BusinessName;
+                existing.WebsiteUrl = dto.WebsiteUrl;
+                existing.ContactLink = dto.ContactLink;
+                existing.TrainingText = dto.TrainingText;
             }
 
-            // Attach the TrainingData to its project
-            var project = await _context.Projects.FindAsync(trainingData.ProjectId);
-            if (project == null)
+            // Auto-rename the project when BusinessName is provided
+            if (!string.IsNullOrWhiteSpace(dto.BusinessName))
             {
-                return NotFound("Project not found.");
+                var newName = dto.BusinessName.Trim();
+                if (!string.Equals(project.Name, newName, StringComparison.Ordinal))
+                {
+                    project.Name = newName;            // overwrite "Draft" (or any value) with BusinessName
+                    project.UpdatedAt = DateTime.UtcNow;
+                }
             }
 
-            trainingData.Project = project;
-
-            _context.TrainingData.Add(trainingData);
             await _context.SaveChangesAsync();
 
-            return Ok(trainingData);
-        }
+            var result = await _context.TrainingData.AsNoTracking()
+                .FirstAsync(t => t.ProjectId == projectId);
 
-        // GET: api/TrainingData/{projectId}
-        [HttpGet("{projectId}")]
-        public async Task<IActionResult> GetTrainingData(Guid projectId)
-        {
-            var trainingData = await _context.TrainingData
-                .Include(td => td.HelpfulLinks)
-                .Include(td => td.PdfFiles)
-                .FirstOrDefaultAsync(td => td.ProjectId == projectId);
-
-            if (trainingData == null)
-            {
-                return NotFound();
-            }
-
-            return Ok(trainingData);
+            return Ok(result);
         }
     }
 }

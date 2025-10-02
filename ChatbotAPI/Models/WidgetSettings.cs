@@ -11,7 +11,7 @@ namespace ChatbotAPI.Models
         [Required]
         public Guid ProjectId { get; set; }
 
-        [ForeignKey("ProjectId")]
+        [ForeignKey(nameof(ProjectId))]
         public Project? Project { get; set; }
 
         [MaxLength(100)]
@@ -27,11 +27,9 @@ namespace ChatbotAPI.Models
         public string? SecondaryColor { get; set; }
 
         public bool UseGradient { get; set; } = false;
-
         public int CornerRadius { get; set; }
-
         public string? ScriptTag { get; set; }
 
-        public DateTime CreatedAt { get; set; } = DateTime.Now;
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     }
 }

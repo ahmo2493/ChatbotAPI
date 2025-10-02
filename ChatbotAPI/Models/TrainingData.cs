@@ -11,20 +11,18 @@ namespace ChatbotAPI.Models
         [Required]
         public Guid ProjectId { get; set; }
 
-        [ForeignKey("ProjectId")]
-        public required Project Project { get; set; }
+        [ForeignKey(nameof(ProjectId))]
+        public Project? Project { get; set; }   // optional nav; we use FK
 
-        // New fields for the various sources of training
-        public string? TrainingText { get; set; } // from customText
+        [MaxLength(200)]
+        public string? BusinessName { get; set; }
 
-        public ICollection<HelpfulLink> HelpfulLinks { get; set; } = new List<HelpfulLink>();
-
-        public ICollection<PdfFile> PdfFiles { get; set; } = new List<PdfFile>();
+        [MaxLength(400)]
+        public string? WebsiteUrl { get; set; }
 
         public string? ContactLink { get; set; }
+        public string? TrainingText { get; set; }
 
-        public string? BusinessCategory { get; set; }
-
-        public DateTime UploadedAt { get; set; } = DateTime.Now;
+        public DateTime UploadedAt { get; set; } = DateTime.UtcNow;
     }
 }

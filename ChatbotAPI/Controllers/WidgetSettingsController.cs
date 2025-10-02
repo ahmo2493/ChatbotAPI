@@ -1,7 +1,7 @@
 ﻿using Microsoft.AspNetCore.Mvc;
-using ChatbotAPI.Models;
 using Microsoft.EntityFrameworkCore;
 using ChatbotAPI.Data;
+using ChatbotAPI.Models;
 
 namespace ChatbotAPI.Controllers
 {
@@ -10,46 +10,74 @@ namespace ChatbotAPI.Controllers
     public class WidgetSettingsController : ControllerBase
     {
         private readonly ChatbotDbContext _context;
+        public WidgetSettingsController(ChatbotDbContext context) => _context = context;
 
-        public WidgetSettingsController(ChatbotDbContext context)
+        private static WidgetSettingsDto Map(WidgetSettings s) =>
+            new WidgetSettingsDto(
+                s.Id, s.ProjectId, s.ChatHeaderText, s.InactiveMessage,
+                s.PrimaryColor, s.SecondaryColor, s.UseGradient, s.CornerRadius, s.ScriptTag
+            );
+
+        [HttpGet("{projectId:guid}")]
+        public async Task<IActionResult> GetByProject(Guid projectId)
         {
-            _context = context;
+            var s = await _context.WidgetSettings
+                .AsNoTracking()
+                .FirstOrDefaultAsync(ws => ws.ProjectId == projectId);
+
+            return s is null ? NotFound() : Ok(Map(s));
         }
 
-        [HttpGet("{projectId}")]
-        public async Task<IActionResult> GetSettings(Guid projectId)
+        // POST upsert
+        [HttpPost("{projectId:guid}")]
+        public async Task<IActionResult> Upsert(Guid projectId, [FromBody] WidgetSettings dto)
         {
-            var settings = await _context.WidgetSettings.FirstOrDefaultAsync(ws => ws.ProjectId == projectId);
-            if (settings == null)
-                return NotFound();
+            var project = await _context.Projects.FindAsync(projectId);
+            if (project is null) return BadRequest($"Unknown projectId: {projectId}");
 
-            return Ok(settings);
-        }
+            var s = await _context.WidgetSettings.FirstOrDefaultAsync(ws => ws.ProjectId == projectId);
 
-        [HttpPost]
-        public async Task<IActionResult> CreateSettings([FromBody] WidgetSettings newSettings)
-        {
-            _context.WidgetSettings.Add(newSettings);
+            if (s is null)
+            {
+                s = new WidgetSettings
+                {
+                    ProjectId = projectId,
+                    ChatHeaderText = dto.ChatHeaderText,
+                    InactiveMessage = dto.InactiveMessage,
+                    PrimaryColor = dto.PrimaryColor,
+                    SecondaryColor = dto.SecondaryColor,
+                    UseGradient = dto.UseGradient,
+                    CornerRadius = dto.CornerRadius,
+                    ScriptTag = dto.ScriptTag
+                };
+                _context.WidgetSettings.Add(s);
+            }
+            else
+            {
+                s.ChatHeaderText = dto.ChatHeaderText;
+                s.InactiveMessage = dto.InactiveMessage;
+                s.PrimaryColor = dto.PrimaryColor;
+                s.SecondaryColor = dto.SecondaryColor;
+                s.UseGradient = dto.UseGradient;
+                s.CornerRadius = dto.CornerRadius;
+                s.ScriptTag = dto.ScriptTag;
+            }
+
             await _context.SaveChangesAsync();
-            return Ok(newSettings);
-        }
-
-        [HttpPut("{projectId}")]
-        public async Task<IActionResult> UpdateSettings(Guid projectId, [FromBody] WidgetSettings updated)
-        {
-            var existing = await _context.WidgetSettings.FirstOrDefaultAsync(ws => ws.ProjectId == projectId);
-            if (existing == null)
-                return NotFound();
-
-            existing.InactiveMessage = updated.InactiveMessage;
-            existing.PrimaryColor = updated.PrimaryColor;
-            existing.SecondaryColor = updated.SecondaryColor;
-            existing.UseGradient = updated.UseGradient;
-            existing.CornerRadius = updated.CornerRadius;
-            existing.ScriptTag = updated.ScriptTag;
-
-            await _context.SaveChangesAsync();
-            return Ok(existing);
+            return Ok(Map(s)); // return DTO only (no navs)
         }
     }
+
+    public record WidgetSettingsDto(
+    int Id,
+    Guid ProjectId,
+    string? ChatHeaderText,
+    string? InactiveMessage,
+    string PrimaryColor,
+    string? SecondaryColor,
+    bool UseGradient,
+    int CornerRadius,
+    string? ScriptTag
+);
+
 }

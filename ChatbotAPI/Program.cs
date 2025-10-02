@@ -1,21 +1,46 @@
-﻿using ChatbotAPI.Services; // make sure this matches your namespace
+﻿using System.Text.Json.Serialization;
+using Microsoft.AspNetCore.Authentication.Cookies;
+using ChatbotAPI.Services; // your service
 using Microsoft.OpenApi.Models;
 using ChatbotAPI.Data;
 using Microsoft.EntityFrameworkCore;
-using ChatbotAPI.Models;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Configuration
-       .AddUserSecrets<Program>();
+builder.Configuration.AddUserSecrets<Program>();
 
-// Add services to the container.
-builder.Services.AddControllers();
+builder.Services.AddControllers().AddJsonOptions(opt =>
+{
+    opt.JsonSerializerOptions.ReferenceHandler = ReferenceHandler.IgnoreCycles;
+    opt.JsonSerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
+});
 
-// ✅ OpenAI + your custom services
+// 🔐 Cookie authentication
+builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
+    .AddCookie(CookieAuthenticationDefaults.AuthenticationScheme, opt =>
+    {
+        opt.Cookie.Name = "auth";
+        opt.Cookie.SameSite = SameSiteMode.None;      // cross-site for Vite dev
+        opt.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+        opt.SlidingExpiration = true;
+    });
+
+// CORS for Vite (http + https) and allow credentials
+builder.Services.AddCors(options =>
+{
+    options.AddDefaultPolicy(policy =>
+    {
+        policy.WithOrigins("http://localhost:5173", "https://localhost:5173")
+              .AllowAnyHeader()
+              .AllowAnyMethod()
+              .AllowCredentials();
+    });
+});
+
+// Your services
 builder.Services.AddSingleton<OpenAIService>();
 
-// ✅ Swagger config (with OpenAPI info)
+// Swagger
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
 {
@@ -27,16 +52,6 @@ builder.Services.AddSwaggerGen(options =>
     });
 });
 
-builder.Services.AddCors(options =>
-{
-    options.AddDefaultPolicy(policy =>
-    {
-        policy.WithOrigins("http://localhost:5173") // exact frontend URL
-              .AllowAnyHeader()
-              .AllowAnyMethod();
-    });
-});
-
 builder.Services.AddDbContext<ChatbotDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 
@@ -44,7 +59,6 @@ var app = builder.Build();
 
 app.UseCors();
 
-// Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
@@ -52,7 +66,10 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+
+app.UseAuthentication();   // ⬅️ must be before UseAuthorization
 app.UseAuthorization();
+
 app.MapControllers();
 
 app.Run();
