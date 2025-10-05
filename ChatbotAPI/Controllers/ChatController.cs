@@ -1,48 +1,85 @@
-﻿using ChatbotAPI.Models;
+﻿// Controllers/ChatController.cs
+using ChatbotAPI.Data;
+using ChatbotAPI.Models;
 using ChatbotAPI.Services;
 using Microsoft.AspNetCore.Mvc;
-using System.Threading.Tasks;
+using Microsoft.EntityFrameworkCore;
 
 namespace ChatbotAPI.Controllers
 {
     [ApiController]
-    [Route("api/chat")]
+    [Route("api/[controller]")] // => /api/chat
     public class ChatController : ControllerBase
     {
         private readonly OpenAIService _openAi;
+        private readonly ChatbotDbContext _db;
 
-        public ChatController(OpenAIService openAi)
+        public ChatController(OpenAIService openAi, ChatbotDbContext db)
         {
             _openAi = openAi;
+            _db = db;
         }
 
         [HttpPost]
         public async Task<IActionResult> Post([FromBody] ChatLog request)
         {
-            if (string.IsNullOrWhiteSpace(request.UserMessage))
-                return BadRequest("Message is required.");
+            if (request is null) return BadRequest("Body is required.");
+            if (request.ProjectId == Guid.Empty) return BadRequest("projectId is required.");
+            if (string.IsNullOrWhiteSpace(request.UserMessage)) return BadRequest("Message is required.");
 
+            // Load business profile (if present)
+            var td = await _db.TrainingData
+                              .AsNoTracking()
+                              .FirstOrDefaultAsync(t => t.ProjectId == request.ProjectId);
+            var project = await _db.Projects
+                                   .AsNoTracking()
+                                   .FirstOrDefaultAsync(p => p.Id == request.ProjectId);
 
-            // 🚧 Optional: Load user/project data from database here
-            // var user = _dbContext.Users.FirstOrDefault(u => u.Id == request.UserId);
-            // var project = _dbContext.Projects.FirstOrDefault(p => p.Id == request.ProjectId);
+            var businessName = td?.BusinessName ?? project?.Name ?? "this business";
+            var website = td?.WebsiteUrl ?? "your website";
+            var contact = td?.ContactLink ?? td?.WebsiteUrl ?? website;
 
-            var botReply = await _openAi.GetResponseAsync(request.UserMessage);
+            // Optional notes to help the model (kept short)
+            var notes = td?.TrainingText?.Trim();
+            if (!string.IsNullOrEmpty(notes) && notes.Length > 2000)
+                notes = notes.Substring(0, 2000);
 
-            // Attach AI reply
-            request.BotResponse = botReply;
-            request.Timestamp = DateTime.Now;
+            // Strong scope + refusal policy (no RAG yet)
+            var system = $@"
+You are the website assistant for ""{businessName}"" ({website}).
+Your sole purpose is to help visitors with information about this specific business and its services.
 
-            // 🚧 Optional: Save to DB or log file
-            // _dbContext.ChatLogs.Add(request);
-            // await _dbContext.SaveChangesAsync();
+Rules:
+- ONLY answer using the 'Business Profile' below. Do not invent facts.
+- If the question is unrelated to this business, refuse politely and steer the user back to relevant topics.
+- If you don't know from the profile, say you don't have that info and give the contact link.
+- Be brief, friendly, and helpful (2–6 short sentences).
+";
 
-            return Ok(new
+            var profile = $@"Business Profile:
+- Name: {businessName}
+- Website: {website}
+- Contact: {contact}
+" + (string.IsNullOrWhiteSpace(notes) ? "" : ("- Notes:\n" + notes));
+
+            var prompt = $"{system}\n\n{profile}\n\nUser: {request.UserMessage}\nAssistant:";
+
+            // Call your existing OpenAI service
+            var botReply = await _openAi.GetResponseAsync(prompt);
+
+            // Log (useful now; invaluable later)
+            var log = new ChatLog
             {
-                response = botReply,
-                userMessage = request.UserMessage,
-                timestamp = request.Timestamp
-            });
+                ProjectId = request.ProjectId,
+                SessionId = string.IsNullOrWhiteSpace(request.SessionId) ? "preview" : request.SessionId,
+                UserMessage = request.UserMessage,
+                BotResponse = botReply,
+                Timestamp = DateTime.UtcNow
+            };
+            _db.ChatLogs.Add(log);
+            await _db.SaveChangesAsync();
+
+            return Ok(new { response = botReply, timestamp = log.Timestamp, id = log.Id });
         }
     }
 }
